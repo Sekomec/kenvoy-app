@@ -10,7 +10,7 @@ const Groq = require('groq-sdk');
 
 const app = express();
 
-// --- 1. DEĞİŞİKLİK: CORS AYARI (Her yerden gelen isteği kabul et) ---
+// --- CORS AYARI ---
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST'],
@@ -63,8 +63,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     let googleFileUri = null;
 
     try {
-        // --- SENARYO 1: GEMINI 2.5 FLASH İLE EVRENSEL ANALİZ ---
-        console.log("--- SENARYO 1: GEMINI 2.5 FLASH BAŞLATILIYOR ---");
+        // --- SENARYO 1: GEMINI 1.5 FLASH (KARARLI SÜRÜM) ---
+        console.log("--- SENARYO 1: GEMINI 1.5 FLASH BAŞLATILIYOR ---");
 
         const uploadResult = await fileManager.uploadFile(filePath, {
             mimeType: req.file.mimetype,
@@ -74,7 +74,9 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
         await waitForFileActive(googleFileUri);
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); // Not: 2.5 henüz kararlı olmayabilir, 2.0 Flash veya Pro kullanıyoruz. İsim güncellemesi.
+        // !!! İŞTE SİHİRLİ DEĞİŞİKLİK BURADA !!!
+        // Eskiden 2.0 idi, şimdi 1.5 yapıldı.
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const result = await model.generateContent([
             {
@@ -110,7 +112,7 @@ DİL: Türkçe
 
         const text = result.response.text();
         console.log("✅ [BAŞARILI] Gemini yanıt verdi.");
-        res.json({ transkript: text, source: 'Gemini 2.0 Flash' });
+        res.json({ transkript: text, source: 'Gemini 1.5 Flash' });
 
     } catch (geminiError) {
         console.error("⚠️ [GEMINI HATA]:", geminiError.message);
@@ -140,7 +142,7 @@ ${transcription.text}
 
         } catch (groqError) {
             console.error("❌ [GROQ HATA]:", groqError.message);
-            res.status(500).json({ error: "Tüm sistemler meşgul veya hata oluştu." });
+            res.status(500).json({ error: "Tüm sistemler meşgul veya dosya çok büyük." });
         }
     } finally {
         if (fs.existsSync(filePath)) fs.unlink(filePath, () => {});
@@ -150,6 +152,5 @@ ${transcription.text}
     }
 });
 
-// --- 2. DEĞİŞİKLİK: RENDER PORT AYARI ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server Hazır: Port ${PORT}`));
