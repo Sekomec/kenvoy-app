@@ -10,7 +10,7 @@ import AdGate from "./components/AdGate";
 
 // --- 1. DEĞİŞİKLİK: DİNAMİK URL ---
 // Eğer Vercel'de bir ayar varsa onu kullan, yoksa (bilgisayarındaysan) localhost'u kullan.
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || "https://kenvoy-server.onrender.com";
 
 function App() {
   const [appState, setAppState] = useState({
