@@ -50,7 +50,6 @@ async function waitForFileActive(fileUri) {
 app.post('/upload', upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Dosya yok." });
 
-    // Dosya uzantısını koruyarak yeniden adlandır
     const originalExt = path.extname(req.file.originalname) || ".mp3";
     const filePath = `${req.file.path}${originalExt}`;
 
@@ -63,8 +62,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     let googleFileUri = null;
 
     try {
-        // --- SENARYO 1: GEMINI 1.5 FLASH (KARARLI SÜRÜM) ---
-        console.log("--- SENARYO 1: GEMINI 1.5 FLASH BAŞLATILIYOR ---");
+        // --- SENARYO 1: GEMINI 2.0 FLASH LITE (Senin Listendeki En Uygun Model) ---
+        console.log("--- SENARYO 1: GEMINI 2.0 FLASH LITE BAŞLATILIYOR ---");
 
         const uploadResult = await fileManager.uploadFile(filePath, {
             mimeType: req.file.mimetype,
@@ -74,9 +73,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
         await waitForFileActive(googleFileUri);
 
-        // !!! İŞTE SİHİRLİ DEĞİŞİKLİK BURADA !!!
-        // Eskiden 2.0 idi, şimdi 1.5 yapıldı.
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // !!! LİSTENDEN SEÇİLEN MODEL !!!
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
 
         const result = await model.generateContent([
             {
@@ -112,7 +110,7 @@ DİL: Türkçe
 
         const text = result.response.text();
         console.log("✅ [BAŞARILI] Gemini yanıt verdi.");
-        res.json({ transkript: text, source: 'Gemini 1.5 Flash' });
+        res.json({ transkript: text, source: 'Gemini 2.0 Flash Lite' });
 
     } catch (geminiError) {
         console.error("⚠️ [GEMINI HATA]:", geminiError.message);
@@ -142,7 +140,7 @@ ${transcription.text}
 
         } catch (groqError) {
             console.error("❌ [GROQ HATA]:", groqError.message);
-            res.status(500).json({ error: "Tüm sistemler meşgul veya dosya çok büyük." });
+            res.status(500).json({ error: "Tüm sistemler meşgul veya hata oluştu." });
         }
     } finally {
         if (fs.existsSync(filePath)) fs.unlink(filePath, () => {});
