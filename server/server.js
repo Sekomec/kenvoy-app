@@ -16,84 +16,70 @@ app.use(express.json());
 // --- AKILLI MODEL YÖNETİCİSİ ---
 class KeyManager {
     constructor(keysString) {
-        // Virgülle ayrılmış anahtarları temizle ve listeye ekle
-        this.keys = keysString.split(',').map(k => k.trim()).filter(k => k).map(k => ({
-            key: k,
-            status: 'ACTIVE', // ACTIVE, COOLDOWN (1dk), DEAD (Günlük kota)
-            retryAfter: 0,
-            failures: 0
-        }));
+        // Virgül kontrolü ve temizlik
+        if (!keysString) {
+            console.error("❌ [HATA] API Anahtarları bulunamadı! .env kontrol edin.");
+            this.keys = [];
+        } else {
+            this.keys = keysString.split(',').map(k => k.trim()).filter(k => k).map(k => ({
+                key: k,
+                status: 'ACTIVE', // ACTIVE, COOLDOWN
+                retryAfter: 0
+            }));
+        }
         
-        // --- DEV MODEL KADROSU (LİSTENDEN SEÇİLDİ) ---
-        // Sıralama: En Zeki -> En Hızlı -> En Deneysel -> En Eski
+        console.log(`✅ [SİSTEM] Toplam ${this.keys.length} adet Gemini anahtarı yüklendi.`);
+
+        // --- GÜNCELLENMİŞ MODEL SIRALAMASI ---
+        // Strateji: Önce "Garanti" çalışanlar, sonra "Lüks" olanlar
         this.models = [
-            // 1. Kademe: En Yeni 2.5 Serisi
+            // 1. Kademe: En Hızlı ve En Güvenilir (Garanti Gol)
+            "gemini-2.0-flash", 
+            "gemini-2.0-flash-lite",
+            
+            // 2. Kademe: Zeki Modeller (Varsa kullanır)
             "gemini-2.5-pro",
             "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
             
-            // 2. Kademe: Gelecek Nesil (Preview 3)
-            "gemini-3-pro-preview",
+            // 3. Kademe: Gelecek Nesil (Deneysel)
             "gemini-3-flash-preview",
-
-            // 3. Kademe: Sağlam 2.0 Serisi
-            "gemini-2.0-flash",
-            "gemini-2.0-flash-lite",
-            "gemini-2.0-flash-001",
-            "gemini-2.0-flash-lite-001",
-
-            // 4. Kademe: Deneysel ve Genel (Fallback)
             "gemini-exp-1206",
-            "gemini-pro-latest",
-            "gemini-flash-latest",
-            "gemini-flash-lite-latest"
+            
+            // 4. Kademe: Eski Topraklar
+            "gemini-1.5-flash",
+            "gemini-pro"
         ];
     }
 
-    // Kullanılabilir bir anahtar bul
     getAvailableKey() {
         const now = Date.now();
         // Cezası bitenleri affet
         this.keys.forEach(k => {
             if (k.status === 'COOLDOWN' && now > k.retryAfter) {
-                console.log(`🔄 [SİSTEM] Anahtar cezası bitti, sahaya dönüyor: ...${k.key.slice(-4)}`);
                 k.status = 'ACTIVE';
             }
         });
 
-        // Aktif olanları bul
         const activeKeys = this.keys.filter(k => k.status === 'ACTIVE');
         if (activeKeys.length === 0) return null;
 
-        // Rastgele birini seç (Yükü dağıtmak için)
         return activeKeys[Math.floor(Math.random() * activeKeys.length)];
     }
 
-    // Hataya göre ceza kes
     punishKey(keyStr, errorMsg) {
         const keyObj = this.keys.find(k => k.key === keyStr);
         if (!keyObj) return;
 
-        // Kota veya Yetki Hatası
-        if (errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('403')) {
-            if (errorMsg.includes('limit: 0') || errorMsg.includes('API key not valid')) {
-                // Bu anahtarın bu modelde hiç hakkı yok veya bozuk
-                console.log(`💀 [SİSTEM] Anahtar devre dışı (Yetki Yok/Bozuk): ...${keyObj.key.slice(-4)}`);
-                keyObj.status = 'DEAD';
-            } else {
-                // Kota doldu veya hız limiti -> 1 dakika ceza
-                console.log(`⏳ [SİSTEM] Anahtar 60sn dinlenmeye alındı: ...${keyObj.key.slice(-4)}`);
-                keyObj.status = 'COOLDOWN';
-                keyObj.retryAfter = Date.now() + 60000;
-            }
-        } 
-        // Model Bulunamadı Hatası (404)
-        else if (errorMsg.includes('404') || errorMsg.includes('not found')) {
-             console.log(`⚠️ [MODEL] Bu anahtar bu modeli (${keyObj.key.slice(-4)}) desteklemiyor. Sıradaki modele geçilecek.`);
-             // Anahtarı cezalandırma, sadece bu deneme başarısız olsun.
-        }
-        else {
-            console.log(`⚠️ [BİLİNMEYEN] Anahtar hata verdi: ...${keyObj.key.slice(-4)} -> ${errorMsg}`);
+        // DÜZELTME: Sadece anahtar geçersizse öldür. Kota hatasında sadece dinlendir.
+        if (errorMsg.includes('API key not valid')) {
+            console.log(`💀 [SİSTEM] Anahtar GEÇERSİZ (Siliniyor): ...${keyObj.key.slice(-4)}`);
+            keyObj.status = 'DEAD'; // Bu anahtarı bir daha asla kullanma
+        } else {
+            // Kota doldu, Limit yok, 429 vs. -> Sadece 10 saniye mola ver
+            // Böylece diğer modellere şansı kalsın.
+            console.log(`⏳ [SİSTEM] Anahtar yoruldu, 10sn mola: ...${keyObj.key.slice(-4)}`);
+            keyObj.status = 'COOLDOWN';
+            keyObj.retryAfter = Date.now() + 10000; 
         }
     }
 }
@@ -102,7 +88,6 @@ class KeyManager {
 const keyManager = new KeyManager(process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "");
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Upload ayarları
 const uploadDir = 'uploads/';
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 const upload = multer({ dest: uploadDir });
@@ -110,49 +95,49 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // --- ANA İŞLEM FONKSİYONU ---
 async function processWithGemini(filePath, mimeType, originalName) {
+    let lastError = null;
+
     // 1. DÖNGÜ: Modelleri sırayla dene 
     for (const modelName of keyManager.models) {
         
-        // Bu model için uygun anahtar var mı kontrol et
-        const activeKeysCount = keyManager.keys.filter(k => k.status === 'ACTIVE').length;
-        if (activeKeysCount === 0) {
-             console.log("❌ [KRİTİK] Hiçbir aktif anahtar kalmadı!");
+        // Aktif anahtar var mı? (DEAD olmayanlar dahil, COOLDOWN bitmiş olabilir)
+        const usableKeys = keyManager.keys.filter(k => k.status !== 'DEAD');
+        if (usableKeys.length === 0) {
+             console.log("❌ [KRİTİK] Tüm anahtarlar 'DEAD' (Geçersiz) durumda!");
              break;
         }
 
-        console.log(`🎯 [STRATEJİ] Hedef Model: ${modelName}`);
+        console.log(`🎯 [DENEME] Model: ${modelName}`);
         
-        // 2. DÖNGÜ: O model için eldeki sağlam anahtarları dene
+        // Bu model için 3 farklı anahtar deneme hakkı verelim
         let attempts = 0;
-        const maxAttempts = keyManager.keys.length; 
+        const maxAttempts = 3; 
 
         while (attempts < maxAttempts) {
             const keyObj = keyManager.getAvailableKey();
-            if (!keyObj) break;
+            
+            // Eğer o an hepsi 'COOLDOWN'daysa bekleme, sonraki modele geç
+            if (!keyObj) break; 
 
             try {
-                // Bağlantı Kur
                 const genAI = new GoogleGenerativeAI(keyObj.key);
                 const fileManager = new GoogleAIFileManager(keyObj.key);
 
-                // Dosyayı Yükle
                 const uploadResult = await fileManager.uploadFile(filePath, {
                     mimeType: mimeType,
                     displayName: originalName,
                 });
                 
-                // İşlenmesini Bekle
                 let file = await fileManager.getFile(uploadResult.file.name);
                 let waitCount = 0;
                 while (file.state === "PROCESSING" && waitCount < 15) {
-                    await delay(2000);
+                    await delay(1000);
                     file = await fileManager.getFile(uploadResult.file.name);
                     waitCount++;
                 }
 
-                if (file.state !== "ACTIVE") throw new Error("Dosya işlenemedi (Processing Timeout).");
+                if (file.state !== "ACTIVE") throw new Error("Dosya işlenemedi.");
 
-                // Analiz İste
                 const model = genAI.getGenerativeModel({ model: modelName });
                 const result = await model.generateContent([
                     {
@@ -172,27 +157,29 @@ DİL: Türkçe` }
                 ]);
 
                 const responseText = result.response.text();
-                
-                // Temizlik
                 await fileManager.deleteFile(uploadResult.file.name);
                 
-                return { text: responseText, source: `Gemini (${modelName})` }; // ZAFER! 🏆
+                console.log(`🏆 [BAŞARILI] ${modelName} sonuç verdi!`);
+                return { text: responseText, source: `Gemini (${modelName})` };
 
             } catch (error) {
                 const errMsg = error.message || error.toString();
-                // Sadece 404 değilse logla, 404 ise sessizce geç
-                if (!errMsg.includes('404')) {
-                    console.error(`💥 [HATA] ${modelName} başarısız (Anahtar: ...${keyObj.key.slice(-4)}): ${errMsg}`);
+                // 404 (Model yok) hatasını sessiz geç, diğerlerini logla
+                if (!errMsg.includes('404') && !errMsg.includes('not found')) {
+                    console.warn(`⚠️ [HATA] ${modelName} başarısız (...${keyObj.key.slice(-4)}): ${errMsg.substring(0, 100)}...`);
+                    // Anahtarı cezalandır
+                    keyManager.punishKey(keyObj.key, errMsg);
+                } else {
+                    // Model bulunamadıysa bu modeli geç, anahtara ceza verme
+                    console.log(`ℹ️ [BİLGİ] ${modelName} bu anahtarda yok, geçiliyor.`);
                 }
                 
-                // Ceza Kes
-                keyManager.punishKey(keyObj.key, errMsg);
+                lastError = error;
                 attempts++;
             }
         }
-        // Bu model ile hiçbir anahtar çalışmadıysa sonraki modele geç
     }
-    throw new Error("Tüm Gemini modelleri ve anahtarları denendi, hepsi başarısız oldu.");
+    throw lastError || new Error("Tüm Gemini modelleri denendi.");
 }
 
 app.post('/upload', upload.single('file'), async (req, res) => {
@@ -208,14 +195,14 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     }
 
     try {
-        // --- PLAN A: GEMINI ORDUSU ---
+        // --- PLAN A: GEMINI ---
         const result = await processWithGemini(filePath, req.file.mimetype, req.file.originalname);
         res.json({ transkript: result.text, source: result.source });
 
     } catch (geminiError) {
-        console.log("🚨 [SİSTEM UYARISI] Gemini filosu başarısız. Yedeğe geçiliyor...");
+        console.log("🚨 [SİSTEM] Gemini başarısız oldu. Groq devreye giriyor...");
         
-        // --- PLAN B: GROQ (SON KALE) ---
+        // --- PLAN B: GROQ ---
         try {
             const stream = fs.createReadStream(filePath);
             const transcription = await groq.audio.transcriptions.create({
@@ -227,14 +214,15 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
             const outputText = `
 ## ⚠️ Sistem Notu
-*Gemini sunucuları (tüm modeller ve anahtarlar) şu an yanıt vermiyor. Yedek sistem devreye girdi.*
+*Gemini sunucuları şu an yoğun. Yedek sistem (Groq Whisper) kullanıldı.*
 
-## 2. Ham Metin (Whisper)
+## 2. Ham Metin
 ${transcription.text}
             `;
             res.json({ transkript: outputText, source: 'Groq Whisper (Yedek)' });
 
         } catch (groqError) {
+            console.error("Groq Hatası:", groqError);
             res.status(500).json({ error: "Tüm sistemler başarısız." });
         }
     } finally {
@@ -243,4 +231,4 @@ ${transcription.text}
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Akıllı Yönetici Devrede: Port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Sunucu Hazır: Port ${PORT}`));
