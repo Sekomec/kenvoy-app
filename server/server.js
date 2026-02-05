@@ -170,12 +170,19 @@ class GeminiService {
                     fileData: { mimeType: mimeType, fileUri: uploadedFile.fileUri }
                 },
                 { text: `
-GÖREV: Ses dosyasını analiz et.
-ÇIKTI FORMATI (Markdown):
-## 1. Bağlam ve Katılımcılar
-## 2. Diyaloglu Tam Metin (Temizlenmiş)
-## 3. Yönetici Özeti
-## 4. Ana Çıkarımlar
+GÖREV: Bu ses dosyasının tam dökümünü (transkriptini) oluştur.
+
+KURALLAR:
+1. "Verbatim" (Kelime kelime) prensibiyle çalış. Hiçbir cümleyi atlama, özetleme yapma.
+2. Konuşmacıları ayırt et (Örn: Konuşmacı 1, Konuşmacı 2).
+3. Okunabilirliği artırmak için uzun konuşmaları paragraflara böl.
+4. "Eee", "hmm" gibi gereksiz sesleri temizle (Clean Verbatim) ama anlamı değiştirme.
+5. Sadece metni ver, zaman damgası (saniye/dakika) EKLEME.
+
+ÇIKTI FORMATI:
+Konuşmacı 1: ...
+Konuşmacı 2: ...
+
 DİL: Türkçe` }
             ]);
 
