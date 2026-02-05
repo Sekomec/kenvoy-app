@@ -8,9 +8,9 @@ import FileUpload from "./components/FileUpload";
 import DisclaimerModal from "./components/DisclaimerModal";
 import AdGate from "./components/AdGate"; 
 
-// --- 1. DEĞİŞİKLİK: DİNAMİK URL ---
-// Eğer Vercel'de bir ayar varsa onu kullan, yoksa (bilgisayarındaysan) localhost'u kullan.
-const API_URL = import.meta.env.VITE_API_URL || "https://kenvoy-server.onrender.com";
+// --- 1. DEĞİŞİKLİK: YENİ GÜÇLÜ SUNUCU ADRESİ ---
+// Hugging Face Space adresini buraya sabitledik.
+const API_URL = "https://sekomec-kenvoy.hf.space";
 
 function App() {
   const [appState, setAppState] = useState({
@@ -24,10 +24,9 @@ function App() {
     error: ""
   });
 
-  // --- 2. DEĞİŞİKLİK: VERSİYON GÜNCELLEMESİ (v4) ---
-  // LocalStorage kontrolü (Daha önce v4'ü onayladı mı?)
+  // --- 2. DEĞİŞİKLİK: VERSİYON KONTROLÜ (v4) ---
   useEffect(() => {
-    const hasAccepted = localStorage.getItem("kenvoy_consent_v4"); // v2 yerine v4 yaptık
+    const hasAccepted = localStorage.getItem("kenvoy_consent_v4");
     if (hasAccepted === "true") {
       setAppState(prev => ({ ...prev, disclaimerAccepted: true }));
     }
@@ -35,8 +34,6 @@ function App() {
 
   // Modal Onay Fonksiyonu
   const handleAcceptDisclaimer = () => {
-    // Modal zaten localStorage'a kaydediyor ama state'i güncellemek için burası şart
-    // Güvenlik için buraya da aynı key'i yazıyoruz.
     localStorage.setItem("kenvoy_consent_v4", "true"); 
     setAppState(prev => ({ ...prev, disclaimerAccepted: true }));
   };
@@ -73,11 +70,11 @@ function App() {
     formData.append("file", appState.file);
 
     try {
-      // --- 3. DEĞİŞİKLİK: URL DEĞİŞİMİ ---
-      // Artık 'http://localhost:5000/upload' yerine dinamik 'API_URL' kullanıyoruz.
+      // --- 3. DEĞİŞİKLİK: İSTEK GÖNDERME ---
+      // Hugging Face sunucusuna post ediyoruz
       const response = await axios.post(`${API_URL}/upload`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
-        timeout: 600000, // 10 dakika zaman aşımı (Render uyku modu uyanması için gerekli)
+        timeout: 600000, // 10 dakika zaman aşımı (Büyük dosyalar için)
       });
 
       setAppState(prev => ({
@@ -99,7 +96,6 @@ function App() {
     <div className="min-h-screen bg-[#0f172a] text-slate-300 font-sans flex flex-col items-center py-10 px-4 relative overflow-x-hidden">
       
       {/* --- GİZLİLİK MODALI --- */}
-      {/* Eğer kabul edilmediyse göster */}
       {!appState.disclaimerAccepted && (
         <DisclaimerModal onAccept={handleAcceptDisclaimer} />
       )}
