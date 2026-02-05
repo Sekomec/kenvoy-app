@@ -1,11 +1,11 @@
 {
   "name": "server",
   "version": "1.0.0",
-  "description": "",
+  "description": "Optimized for Render Free Tier",
   "main": "server.js",
   "scripts": {
-    "start": "bash start.sh",
-    "dev": "nodemon server.js",
+    "start": "node --max-old-space-size=460 server.js",
+    "dev": "nodemon --max-old-space-size=460 server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
