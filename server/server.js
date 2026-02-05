@@ -290,8 +290,8 @@ const orchestrator = new Orchestrator(keyManager, modelStrategy);
 app.use(cors({ origin: '*', methods: ['GET', 'POST'] }));
 
 // Büyük payloadlar için limit artırımı (Çok önemli)
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Upload Klasör Ayarları
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
