@@ -1,7 +1,7 @@
 /**
  * ==========================================================================================
  * PROJECT: ROBUST AUDIO TRANSCRIPTION GATEWAY (GEMINI & GROQ FALLBACK)
- * VERSION: 2.1.1 (TIMEOUT FIX EDITION)
+ * VERSION: 2.2.0 (STABLE BRIDGE EDITION)
  * AUTHOR: Kodlama Desteği AI & User
  * ==========================================================================================
  */
@@ -19,7 +19,6 @@ const Groq = require('groq-sdk');
 // --- TİP TANIMLAMALARI VE SABİTLER ---
 
 const UPLOAD_DIR = 'uploads/';
-const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB (Eşitledik)
 const SERVER_PORT = process.env.PORT || 5000;
 
 // İstatistikleri hafızada tutmak için global obje
@@ -48,6 +47,7 @@ class Logger {
     }
     static error(msg, context = "HATA", errorObj = null) {
         console.error(`\x1b[31m[${this.getTime()}]\x1b[0m \x1b[1m[ERROR]\x1b[0m [${context}]: ${msg}`);
+        if (errorObj) console.error(errorObj);
     }
     static divider() {
         console.log(`\x1b[90m------------------------------------------------------------\x1b[0m`);
@@ -66,14 +66,13 @@ class KeyManager {
             Logger.error("ENV dosyasında GEMINI_API_KEYS bulunamadı!");
             return;
         }
-        // Virgülle ayır ve temizle
         const rawKeys = keysString.split(',').map(k => k.trim()).filter(k => k.length > 0);
         
         rawKeys.forEach((k, index) => {
             this.keys.push({
                 id: index + 1,
                 key: k,
-                status: 'ACTIVE', // ACTIVE, COOLDOWN, DEAD
+                status: 'ACTIVE',
                 cooldownUntil: 0
             });
         });
@@ -82,7 +81,6 @@ class KeyManager {
 
     getActiveKeys() {
         const now = Date.now();
-        // Cooldown süresi bitenleri kurtar
         this.keys.forEach(k => {
             if (k.status === 'COOLDOWN' && now > k.cooldownUntil) {
                 Logger.info(`Anahtar #${k.id} cezası bitti, tekrar aktif.`, "KEY-MGR");
@@ -100,7 +98,6 @@ class KeyManager {
             keyObj.status = 'DEAD';
             Logger.error(`Anahtar #${keyObj.id} GEÇERSİZ olduğu için silindi (DEAD).`, "KEY-MGR");
         } else {
-            // Geçici hata -> 10 saniye dinlendir
             keyObj.status = 'COOLDOWN';
             keyObj.cooldownUntil = Date.now() + 10000;
             Logger.warn(`Anahtar #${keyObj.id} 10sn dinlenmeye alındı.`, "KEY-MGR");
@@ -112,17 +109,11 @@ class KeyManager {
 class ModelStrategy {
     constructor() {
         this.models = [
-            // 1. Kademe: En Hızlı ve Güvenilir (Render ortamı için ideal)
             { id: "gemini-2.0-flash", desc: "Hızlı" },
             { id: "gemini-2.0-flash-lite", desc: "Hafif" },
-            
-            // 2. Kademe: Akıllı Modeller
             { id: "gemini-2.5-pro", desc: "Zeki" },
             { id: "gemini-2.5-flash", desc: "Dengeli" },
-
-            // 3. Kademe: Eski/Deneysel
-            { id: "gemini-1.5-flash", desc: "Eski Flash" },
-            { id: "gemini-exp-1206", desc: "Deneysel" }
+            { id: "gemini-1.5-flash", desc: "Eski Flash" }
         ];
     }
     getModels() { return this.models; }
@@ -146,8 +137,8 @@ class GeminiService {
         // İşlenmesini bekle
         let file = await fileManager.getFile(fileName);
         let attempts = 0;
-        while (file.state === "PROCESSING" && attempts < 20) {
-            await this.delay(1000);
+        while (file.state === "PROCESSING" && attempts < 30) { // Bekleme süresi artırıldı
+            await this.delay(2000);
             file = await fileManager.getFile(fileName);
             attempts++;
         }
@@ -162,11 +153,11 @@ class GeminiService {
             const genAI = new GoogleGenerativeAI(apiKey);
             uploadedFile = await this.uploadAndPoll(filePath, mimeType, originalName, apiKey);
 
-            // --- GÜNCELLEME BURADA YAPILDI ---
+            // Timeout sorunu için kritik ayar
             const model = genAI.getGenerativeModel({ 
                 model: modelId 
             }, {
-                timeout: 0 // <--- BU SATIR HATAYI ÇÖZER (Sonsuz zaman aşımı)
+                timeout: 0 // Sonsuz bekleme (Büyük dosyalar için şart)
             });
             
             Logger.info(`Analiz ediliyor... Model: ${modelId}`, "GEMINI-GEN");
@@ -199,7 +190,6 @@ DİL: Türkçe` }
             return responseText;
 
         } catch (error) {
-            // Hata olsa bile dosyayı silmeye çalış
             if (uploadedFile) {
                 try { await uploadedFile.manager.deleteFile(uploadedFile.name); } catch(e){}
             }
@@ -224,7 +214,6 @@ class Orchestrator {
         for (const model of models) {
             Logger.info(`>>> STRATEJİ: Model [${model.id}] deneniyor.`, "ORCHESTRATOR");
 
-            // Bu model için max 3 farklı anahtar dene (Sonsuz döngüye girmesin)
             let attempts = 0;
             while (attempts < 3) {
                 const activeKeys = this.keyManager.getActiveKeys();
@@ -233,7 +222,6 @@ class Orchestrator {
                     break;
                 }
 
-                // Rastgele bir anahtar seç
                 const currentKeyObj = activeKeys[Math.floor(Math.random() * activeKeys.length)];
 
                 try {
@@ -256,10 +244,9 @@ class Orchestrator {
                     
                     this.keyManager.reportFailure(currentKeyObj.key, error);
 
-                    // Eğer model bulunamadıysa (404), bu modelde ısrar etme, diğer modele geç
                     if (errorMsg.includes("404") || errorMsg.includes("not found")) {
                         Logger.info("Bu model desteklenmiyor, sonraki modele geçiliyor.", "SKIP");
-                        break; // while döngüsünü kır, for döngüsü sonraki modele geçer
+                        break; 
                     }
                 }
                 attempts++;
@@ -301,36 +288,43 @@ const modelStrategy = new ModelStrategy();
 const orchestrator = new Orchestrator(keyManager, modelStrategy);
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST'] }));
-app.use(express.json());
 
-// Upload Ayarları
+// Büyük payloadlar için limit artırımı (Çok önemli)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Upload Klasör Ayarları
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
-const upload = multer({ dest: UPLOAD_DIR, limits: { fileSize: 500 * 1024 * 1024 } });
+// Disk Storage (RAM'i korur)
+const upload = multer({ dest: UPLOAD_DIR }); 
 
 // --- ENDPOINTLER ---
 
-// ÖNEMLİ DÜZELTME: Frontend '/upload' bekliyor, '/api/transcribe' değil!
 app.post('/upload', upload.single('file'), async (req, res) => {
     SYSTEM_STATS.totalRequests++;
     
+    // Geçici dosya yolu
+    let filePath = null;
+
     if (!req.file) return res.status(400).json({ error: "Dosya yok." });
     
-    // Uzantı ekle
-    const originalExt = path.extname(req.file.originalname) || ".mp3";
-    const filePath = `${req.file.path}${originalExt}`;
+    // Multer dosyayı rastgele bir isimle kaydetti, onu alıyoruz
+    filePath = req.file.path; 
     
-    try {
-        fs.renameSync(req.file.path, filePath);
-    } catch(e) { return res.status(500).json({ error: "Dosya işleme hatası" }); }
+    // Doğru uzantıyı ekleyelim (Gemini uzantı istiyor)
+    const originalExt = path.extname(req.file.originalname) || ".mp3";
+    const correctPath = `${req.file.path}${originalExt}`;
 
     try {
+        fs.renameSync(filePath, correctPath);
+        filePath = correctPath; // Artık yeni yolu kullanacağız
+
         const result = await orchestrator.processAudio(
             filePath, 
             req.file.mimetype, 
             req.file.originalname
         );
 
-        // ÖNEMLİ DÜZELTME: Frontend { transkript, source } bekliyor!
         res.json({
             transkript: result.text,
             source: result.source
@@ -340,12 +334,17 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         Logger.error("Kritik Hata", "API", error);
         res.status(500).json({ error: "İşlem başarısız oldu." });
     } finally {
-        // Temizlik
-        if (fs.existsSync(filePath)) fs.unlink(filePath, () => {});
+        // [BRIDGE TEMİZLİĞİ] İşlem bitince dosyayı kesinlikle sil
+        if (filePath && fs.existsSync(filePath)) {
+            fs.unlink(filePath, (err) => {
+                if(err) Logger.error("Dosya silinemedi", "CLEANUP", err);
+                else Logger.info("Geçici dosya temizlendi.", "CLEANUP");
+            });
+        }
     }
 });
 
-// İstatistikleri görmek için ekstra endpoint (Tarayıcıdan girip bakabilirsin)
+// Durum kontrolü
 app.get('/status', (req, res) => {
     res.json({
         uptime: process.uptime(),
@@ -354,8 +353,15 @@ app.get('/status', (req, res) => {
     });
 });
 
-app.listen(SERVER_PORT, () => {
+// --- SERVER START (TIMEOUT AYARLARI İLE) ---
+const server = app.listen(SERVER_PORT, () => {
     Logger.divider();
     Logger.success(`🚀 GÖREV HAZIR: Port ${SERVER_PORT}`, "BOOT");
+    Logger.info(`RAM Korumalı Bridge Modu Aktif`, "BOOT");
     Logger.divider();
 });
+
+// ÖNEMLİ: Sunucunun bağlantı zaman aşımı süresini 10 dakikaya çıkarıyoruz
+server.setTimeout(10 * 60 * 1000); 
+server.keepAliveTimeout = 120 * 1000;
+server.headersTimeout = 120 * 1000;
