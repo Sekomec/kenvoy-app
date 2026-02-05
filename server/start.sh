@@ -1,27 +1,27 @@
 #!/bin/bash
-set -e # Hata olursa dur
+set -e
 
-echo ">>> SWAP AYARLARI BASLIYOR..."
+echo ">>> SWAP ISLEMI BASLIYOR..."
 
-# Mevcut swap varsa kapat
+# /tmp YERINE direk oldugumuz yere kuralim (Disk kullanimi icin)
+SWAPFILE=$(pwd)/swapfile
+
+# Onceki swap varsa temizle
 swapoff -a || true
+rm -f $SWAPFILE
 
-# 1.5 GB'lık boş dosya oluştur (dd komutu daha garantidir)
-dd if=/dev/zero of=/tmp/swapfile bs=1M count=1536 status=progress
+# 1.5 GB'lik dosya olustur (Diskte yer acar)
+dd if=/dev/zero of=$SWAPFILE bs=1M count=1536
 
-# Dosya izinlerini ayarla
-chmod 600 /tmp/swapfile
+# Izinleri ayarla
+chmod 600 $SWAPFILE
 
-# Dosyayı swap alanı olarak formatla
-mkswap /tmp/swapfile
+# Swap olarak bicimlendir ve ac
+mkswap $SWAPFILE
+swapon $SWAPFILE
 
-# Swap'i aktif et
-swapon /tmp/swapfile
-
-echo ">>> SWAP BASARIYLA OLUSTURULDU! (1.5 GB EK HAFIZA)"
-echo ">>> TOPLAM HAFIZA DURUMU:"
+echo ">>> SWAP HAZIR! DURUM:"
 free -h
 
-# Sunucuyu başlat
 echo ">>> SERVER BASLATILIYOR..."
 exec node server.js
