@@ -157,7 +157,7 @@ class GeminiService {
             const model = genAI.getGenerativeModel({ 
                 model: modelId 
             }, {
-                timeout: 0 // Sonsuz bekleme (Büyük dosyalar için şart)
+                timeout:6000 // Sonsuz bekleme (Büyük dosyalar için şart)
             });
             
             Logger.info(`Analiz ediliyor... Model: ${modelId}`, "GEMINI-GEN");
