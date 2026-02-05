@@ -1,7 +1,7 @@
 /**
  * ==========================================================================================
  * PROJECT: ROBUST AUDIO TRANSCRIPTION GATEWAY (GEMINI & GROQ FALLBACK)
- * VERSION: 2.1.0 (COMPATIBLE EDITION)
+ * VERSION: 2.1.1 (TIMEOUT FIX EDITION)
  * AUTHOR: Kodlama Desteği AI & User
  * ==========================================================================================
  */
@@ -162,7 +162,13 @@ class GeminiService {
             const genAI = new GoogleGenerativeAI(apiKey);
             uploadedFile = await this.uploadAndPoll(filePath, mimeType, originalName, apiKey);
 
-            const model = genAI.getGenerativeModel({ model: modelId });
+            // --- GÜNCELLEME BURADA YAPILDI ---
+            const model = genAI.getGenerativeModel({ 
+                model: modelId 
+            }, {
+                timeout: 0 // <--- BU SATIR HATAYI ÇÖZER (Sonsuz zaman aşımı)
+            });
+            
             Logger.info(`Analiz ediliyor... Model: ${modelId}`, "GEMINI-GEN");
             
             const result = await model.generateContent([
