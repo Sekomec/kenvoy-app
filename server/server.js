@@ -24,7 +24,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 // --- TİP TANIMLAMALARI VE SABİTLER ---
 
 const UPLOAD_DIR = 'uploads/';
-const SERVER_PORT = process.env.PORT || 5000;
+const SERVER_PORT = process.env.PORT || 7860;
 
 // İstatistikleri hafızada tutmak için global obje
 const SYSTEM_STATS = {
@@ -164,7 +164,7 @@ class GeminiService {
         let file = await fileManager.getFile(fileName);
         let attempts = 0;
         while (file.state === "PROCESSING" && attempts < 30) { 
-            await this.delay(2000);
+            await this.delay(5000);
             file = await fileManager.getFile(fileName);
             attempts++;
         }
@@ -183,7 +183,7 @@ class GeminiService {
             const model = genAI.getGenerativeModel({ 
                 model: modelId 
             }, {
-                timeout:6000 // Sonsuz bekleme
+                timeout:600000 // Sonsuz bekleme
             });
             
             Logger.info(`Analiz ediliyor... Model: ${modelId}`, "GEMINI-GEN");
