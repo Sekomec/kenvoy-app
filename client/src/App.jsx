@@ -203,6 +203,8 @@ function App() {
 
       <footer className="mt-20 text-slate-600 text-sm z-10 py-6 border-t border-slate-800/50 w-full text-center">
         <p>© 2026 KENVOY AI. Tüm hakları saklıdır.</p>
+        {/* İstenen metin buraya eklendi */}
+        <p className="mt-2 text-xs opacity-75">18 yaşından büyüğüm ve Hizmet Şartlarını kabul ediyorum.</p>
       </footer>
     </div>
   );
