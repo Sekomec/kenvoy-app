@@ -1,0 +1,35 @@
+name: Sync to Hugging Face Hub
+on:
+  push:
+    branches: [main]  # GitHub'da ana dalının adı 'master' ise burayı 'master' yap
+
+  # İş akışını manuel tetiklemek istersen:
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
+      
+      # ÖNEMLİ ADIM: Sadece 'server' klasörünü Hugging Face'e gönderiyoruz
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          # Buraya kendi Hugging Face kullanıcı adını ve Space adını yaz
+          HF_USERNAME: sekomec 
+          SPACE_NAME: KENVOY
+        run: |
+          # Git ayarlarını yapılandır
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          
+          # Hugging Face'i 'space' adında bir uzak sunucu olarak ekle
+          git remote add space https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME
+          
+          # Server klasörünü Space'in ana dizinine (root) zorla gönder (Force Push)
+          # Bu komut 'server' klasörünün içeriğini alır ve HF'nin ana dizini yapar.
+          git subtree push --prefix server space main

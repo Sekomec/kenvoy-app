@@ -1,7 +1,7 @@
 /**
  * ==========================================================================================
  * PROJECT: ROBUST AUDIO TRANSCRIPTION GATEWAY (GEMINI & GROQ FALLBACK)
- * VERSION: 2.2.0 (STABLE BRIDGE EDITION)
+ * VERSION: 2.3.0 (COMPRESSION EDITION)
  * AUTHOR: Kodlama Desteği AI & User
  * ==========================================================================================
  */
@@ -15,6 +15,11 @@ const path = require('path');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { GoogleAIFileManager } = require("@google/generative-ai/server");
 const Groq = require('groq-sdk');
+
+// --- [YENİ] FFMPEG IMPORTLARI ---
+const ffmpeg = require("fluent-ffmpeg");
+const ffmpegPath = require("ffmpeg-static");
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // --- TİP TANIMLAMALARI VE SABİTLER ---
 
@@ -53,6 +58,27 @@ class Logger {
         console.log(`\x1b[90m------------------------------------------------------------\x1b[0m`);
     }
 }
+
+// --- [YENİ] SES SIKIŞTIRMA FONKSİYONU ---
+const compressAudio = (inputPath, outputPath) => {
+    return new Promise((resolve, reject) => {
+        Logger.info("Dosya optimize ediliyor (16kHz, Mono, 64k)...", "FFMPEG");
+        ffmpeg(inputPath)
+            .audioFrequency(16000)      // Groq/Whisper için ideal
+            .audioChannels(1)           // Mono (Boyutu yarıya indirir)
+            .audioCodec("libmp3lame")   // MP3 formatı
+            .audioBitrate("64k")        // Yeterli kalite, düşük boyut
+            .on("end", () => {
+                Logger.success("Optimizasyon tamamlandı.", "FFMPEG");
+                resolve(outputPath);
+            })
+            .on("error", (err) => {
+                Logger.error("Sıkıştırma hatası!", "FFMPEG", err);
+                reject(err);
+            })
+            .save(outputPath);
+    });
+};
 
 // --- KEY MANAGER (ANAHTAR YÖNETİCİSİ) ---
 class KeyManager {
@@ -137,7 +163,7 @@ class GeminiService {
         // İşlenmesini bekle
         let file = await fileManager.getFile(fileName);
         let attempts = 0;
-        while (file.state === "PROCESSING" && attempts < 30) { // Bekleme süresi artırıldı
+        while (file.state === "PROCESSING" && attempts < 30) { 
             await this.delay(2000);
             file = await fileManager.getFile(fileName);
             attempts++;
@@ -157,7 +183,7 @@ class GeminiService {
             const model = genAI.getGenerativeModel({ 
                 model: modelId 
             }, {
-                timeout:6000 // Sonsuz bekleme (Büyük dosyalar için şart)
+                timeout:6000 // Sonsuz bekleme
             });
             
             Logger.info(`Analiz ediliyor... Model: ${modelId}`, "GEMINI-GEN");
@@ -254,6 +280,7 @@ class Orchestrator {
         }
 
         // 2. PLAN: GROQ (SON KALE)
+        // Artık dosya zaten sıkıştırılmış olduğu için 25MB limitine takılmayacak
         return await this.fallbackToGroq(filePath);
     }
 
@@ -276,7 +303,7 @@ class Orchestrator {
             };
         } catch (error) {
             SYSTEM_STATS.failedTranscriptions++;
-            throw new Error("Tüm sistemler çöktü.");
+            throw new Error("Tüm sistemler çöktü: " + error.message);
         }
     }
 }
@@ -289,13 +316,12 @@ const orchestrator = new Orchestrator(keyManager, modelStrategy);
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST'] }));
 
-// Büyük payloadlar için limit artırımı (Çok önemli)
+// Büyük payloadlar için limit artırımı
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Upload Klasör Ayarları
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
-// Disk Storage (RAM'i korur)
 const upload = multer({ dest: UPLOAD_DIR }); 
 
 // --- ENDPOINTLER ---
@@ -303,26 +329,27 @@ const upload = multer({ dest: UPLOAD_DIR });
 app.post('/upload', upload.single('file'), async (req, res) => {
     SYSTEM_STATS.totalRequests++;
     
-    // Geçici dosya yolu
-    let filePath = null;
+    // Geçici dosya yolları
+    let originalFilePath = null;
+    let compressedFilePath = null;
 
     if (!req.file) return res.status(400).json({ error: "Dosya yok." });
     
-    // Multer dosyayı rastgele bir isimle kaydetti, onu alıyoruz
-    filePath = req.file.path; 
-    
-    // Doğru uzantıyı ekleyelim (Gemini uzantı istiyor)
-    const originalExt = path.extname(req.file.originalname) || ".mp3";
-    const correctPath = `${req.file.path}${originalExt}`;
-
     try {
-        fs.renameSync(filePath, correctPath);
-        filePath = correctPath; // Artık yeni yolu kullanacağız
+        originalFilePath = req.file.path;
+        
+        // Sıkıştırılmış dosya yolu oluştur
+        compressedFilePath = path.join(UPLOAD_DIR, `comp_${req.file.filename}.mp3`);
 
+        // [YENİ] 1. ADIM: Dosyayı Sıkıştır
+        await compressAudio(originalFilePath, compressedFilePath);
+
+        // Artık işlem yapılacak dosya: compressedFilePath
+        // MIME Type artık kesinlikle audio/mp3 oldu
         const result = await orchestrator.processAudio(
-            filePath, 
-            req.file.mimetype, 
-            req.file.originalname
+            compressedFilePath, 
+            "audio/mp3", 
+            req.file.originalname + ".mp3" // Gemini için isimlendirme
         );
 
         res.json({
@@ -332,14 +359,15 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
     } catch (error) {
         Logger.error("Kritik Hata", "API", error);
-        res.status(500).json({ error: "İşlem başarısız oldu." });
+        res.status(500).json({ error: "İşlem başarısız oldu: " + error.message });
     } finally {
-        // [BRIDGE TEMİZLİĞİ] İşlem bitince dosyayı kesinlikle sil
-        if (filePath && fs.existsSync(filePath)) {
-            fs.unlink(filePath, (err) => {
-                if(err) Logger.error("Dosya silinemedi", "CLEANUP", err);
-                else Logger.info("Geçici dosya temizlendi.", "CLEANUP");
-            });
+        // [TEMİZLİK] Hem orijinal hem sıkıştırılmış dosyayı sil
+        try {
+            if (originalFilePath && fs.existsSync(originalFilePath)) fs.unlinkSync(originalFilePath);
+            if (compressedFilePath && fs.existsSync(compressedFilePath)) fs.unlinkSync(compressedFilePath);
+            Logger.info("Geçici dosyalar temizlendi.", "CLEANUP");
+        } catch (err) {
+            Logger.error("Dosya silme hatası", "CLEANUP", err);
         }
     }
 });
@@ -357,7 +385,7 @@ app.get('/status', (req, res) => {
 const server = app.listen(SERVER_PORT, () => {
     Logger.divider();
     Logger.success(`🚀 GÖREV HAZIR: Port ${SERVER_PORT}`, "BOOT");
-    Logger.info(`RAM Korumalı Bridge Modu Aktif`, "BOOT");
+    Logger.info(`RAM Korumalı & Sıkıştırmalı (FFmpeg) Bridge Modu Aktif`, "BOOT");
     Logger.divider();
 });
 
